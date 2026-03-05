@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Road Sign Detection System</title>
+  <meta name="description" content="Real-time road sign detection with voice alerts — live camera, video and image analysis.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="app-header">
+    <h1>🚦 Road Sign Detection System</h1>
+    <p class="subtitle">Real-time traffic sign recognition powered by deep learning</p>
+    <div class="model-badge" id="globalModelBadge">
+      <span class="dot"></span>
+      <span id="globalModelText">Checking model…</span>
+    </div>
+  </header>
+
+  <!-- ===== TAB NAVIGATION ===== -->
+  <nav class="tab-nav" role="tablist">
+    <button class="tab-btn active" id="tabLive" role="tab" aria-selected="true" onclick="switchTab('live')">
+      <span class="tab-icon">📹</span> Live Camera
+    </button>
+    <button class="tab-btn" id="tabVideo" role="tab" aria-selected="false" onclick="switchTab('video')">
+      <span class="tab-icon">🎥</span> Upload Video
+    </button>
+    <button class="tab-btn" id="tabImage" role="tab" aria-selected="false" onclick="switchTab('image')">
+      <span class="tab-icon">🖼️</span> Upload Image
+    </button>
+  </nav>
+
+  <div class="panels-wrapper">
+
+    <!-- ================================================================
+         PANEL 1 – LIVE CAMERA
+    ================================================================ -->
+    <div class="panel active" id="panelLive">
+      <div class="live-layout">
+
+        <!-- LEFT: Video feed -->
+        <div class="video-card">
+          <div class="video-card-header">
+            <h2>📹 Live Webcam Feed</h2>
+            <div class="live-indicator" id="liveIndicator">
+              <span class="blink"></span> LIVE
+            </div>
+          </div>
+          <div class="video-frame">
+            <img id="liveVideoFeed"
+                 src="{{ url_for('video_placeholder') }}"
+                 alt="Live video feed">
+          </div>
+        </div>
+
+        <!-- RIGHT: Controls + status sidebar -->
+        <div class="sidebar-panel">
+
+          <!-- Model & session status -->
+          <div class="info-card">
+            <h3>System Status</h3>
+            <div class="status-row">
+              <span class="key">Model</span>
+              <span class="val" id="liveModelStatus">—</span>
+            </div>
+            <div class="status-row">
+              <span class="key">Camera</span>
+              <span class="val inactive-red" id="liveCameraStatus">Stopped</span>
+            </div>
+            <div class="status-row">
+              <span class="key">Classes</span>
+              <span class="val" id="liveLabelCount">—</span>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="info-card">
+            <h3>Controls</h3>
+            <div class="btn-group">
+              <div class="btn-row">
+                <button class="btn btn-green" id="liveStartBtn" onclick="startLiveDetection()">
+                  ▶ Start
+                </button>
+                <button class="btn btn-red" id="liveStopBtn" disabled onclick="stopLiveDetection()">
+                  ⏹ Stop
+                </button>
+              </div>
+              <button class="btn btn-blue" id="liveSpeakBtn" onclick="speakLive()">
+                🔊 Speak Detection
+              </button>
+              <button class="btn btn-ghost" id="liveTtsTestBtn" onclick="ttsTest()">
+                🔊 Test Speaker
+              </button>
+              <div class="toggle-row">
+                <span style="color:var(--text-muted);font-size:0.85rem;">Auto Speak (real-time)</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="liveAutoSpeak">
+                  <span class="slider-round"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Current Detection -->
+          <div class="info-card">
+            <h3>🎯 Current Detection</h3>
+            <div class="detection-badge" id="liveDetectionBadge">
+              <span class="label-text" id="liveDetectionLabel">Waiting for detection…</span>
+              <span class="label-hint" id="liveDetectionHint">Start the camera to begin</span>
+            </div>
+          </div>
+
+          <!-- Detection History -->
+          <div class="info-card">
+            <h3>📋 Detection History</h3>
+            <div class="history-list" id="liveHistory">
+              <p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:8px;">No detections yet</p>
+            </div>
+          </div>
+
+        </div><!-- /sidebar -->
+      </div><!-- /live-layout -->
+    </div><!-- /panelLive -->
+
+
+    <!-- ================================================================
+         PANEL 2 – VIDEO UPLOAD
+    ================================================================ -->
+    <div class="panel" id="panelVideo">
+      <div class="video-upload-layout">
+
+        <!-- LEFT: Upload + preview + stream -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+
+          <!-- Upload area (hidden when video is loaded) -->
+          <div id="videoUploadZoneWrap">
+            <label for="videoFileInput">
+              <div class="upload-zone" id="videoDropZone">
+                <div class="zone-icon">📂</div>
+                <h3>Drop video here or click to browse</h3>
+                <p>MP4, AVI, MOV, MKV — up to 200 MB</p>
+              </div>
+            </label>
+            <input type="file" id="videoFileInput" accept="video/*" hidden>
+          </div>
+
+          <!-- Loaded file info bar -->
+          <div id="videoFileBar" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 16px;display:none;align-items:center;justify-content:space-between;gap:12px;font-size:0.85rem;">
+            <span>🎬 <strong id="videoFileName" style="color:var(--neon-blue);">—</strong></span>
+            <button class="btn btn-ghost" style="padding:5px 12px;font-size:0.8rem;" onclick="clearVideo()">✕ Clear</button>
+          </div>
+
+          <!-- Video preview (native player, shown before streaming) -->
+          <div class="video-preview-area" id="videoPreviewArea">
+            <video id="videoPreviewPlayer" controls></video>
+          </div>
+
+          <!-- Streaming overlay (shows model output) -->
+          <div class="video-preview-area" id="videoStreamArea" style="display:none;">
+            <img id="videoStreamFeed" src="" alt="Video stream detection">
+          </div>
+
+          <!-- Action buttons row -->
+          <div id="videoActionRow" style="display:none;">
+            <div class="btn-row">
+              <button class="btn btn-green" id="videoStartBtn" onclick="startVideoDetection()">▶ Stream &amp; Detect</button>
+              <button class="btn btn-red" id="videoStopBtn" disabled onclick="stopVideoDetection()">⏹ Stop Stream</button>
+            </div>
+            <div class="btn-row" style="margin-top:8px;">
+              <button class="btn btn-blue" id="analyzeFramesBtn" onclick="analyzeVideoFrames()">
+                🔍 Analyze 50 Frames
+              </button>
+            </div>
+          </div>
+
+          <!-- Frame analysis results -->
+          <div class="analysis-card" id="videoAnalysisCard" style="display:none;">
+            <div class="analysis-card-header">
+              <h3>📊 Frame Analysis Results</h3>
+              <span id="analysisCount" style="font-size:0.78rem;color:var(--text-muted);"></span>
+            </div>
+            <div class="analysis-summary" id="analysisSummary"></div>
+            <div class="analysis-body" id="analysisFrameList"></div>
+          </div>
+
+        </div><!-- /left col -->
+
+        <!-- RIGHT: Video sidebar -->
+        <div class="sidebar-panel">
+
+          <!-- Status card -->
+          <div class="info-card">
+            <h3>System Status</h3>
+            <div class="status-row">
+              <span class="key">Model</span>
+              <span class="val" id="videoModelStatus">—</span>
+            </div>
+            <div class="status-row">
+              <span class="key">Stream</span>
+              <span class="val inactive-red" id="videoStreamStatus">Idle</span>
+            </div>
+            <div class="status-row">
+              <span class="key">Classes</span>
+              <span class="val" id="videoLabelCount">—</span>
+            </div>
+          </div>
+
+          <!-- Speak controls -->
+          <div class="info-card">
+            <h3>Voice Alert</h3>
+            <div class="btn-group">
+              <button class="btn btn-blue" id="videoSpeakBtn" onclick="speakVideo()">
+                🔊 Speak Detection
+              </button>
+              <button class="btn btn-ghost" onclick="ttsTest()">
+                🔊 Test Speaker
+              </button>
+              <div class="toggle-row">
+                <span style="color:var(--text-muted);font-size:0.85rem;">Auto Speak (stream)</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="videoAutoSpeak">
+                  <span class="slider-round"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Current Detection for Video -->
+          <div class="info-card">
+            <h3>🎯 Current Detection</h3>
+            <div class="video-detect-badge" id="videoDetectionBadge">
+              <span class="label-text" id="videoDetectionLabel">No detection yet</span>
+              <span class="label-hint">Upload &amp; stream a video to detect signs</span>
+            </div>
+          </div>
+
+          <!-- Video detection history -->
+          <div class="info-card">
+            <h3>📋 Detection History</h3>
+            <div class="history-list" id="videoHistory">
+              <p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:8px;">No detections yet</p>
+            </div>
+          </div>
+
+        </div><!-- /sidebar -->
+      </div>
+    </div><!-- /panelVideo -->
+
+
+    <!-- ================================================================
+         PANEL 3 – IMAGE UPLOAD
+    ================================================================ -->
+    <div class="panel" id="panelImage">
+      <div class="live-layout">
+
+        <!-- LEFT: Upload + annotated result -->
+        <div class="video-card">
+          <div class="video-card-header">
+            <h2>🖼️ Image Sign Detection</h2>
+            <span style="font-size:0.78rem;color:var(--text-muted);">Upload any traffic sign photo</span>
+          </div>
+          <div style="padding:20px;">
+
+            <label for="imageFileInput">
+              <div class="upload-zone" id="imageDropZone" style="border-color:rgba(168,85,247,0.4);background:rgba(168,85,247,0.03);">
+                <div class="zone-icon">🖼️</div>
+                <h3>Drop image here or click to browse</h3>
+                <p>PNG, JPG, JPEG, BMP — up to 200 MB</p>
+              </div>
+            </label>
+            <input type="file" id="imageFileInput" accept="image/*" hidden>
+
+            <!-- Annotated result image -->
+            <div id="imageResultBox" style="margin-top:16px;display:none;">
+              <img id="imagePreviewImg" src="" alt="Detection result"
+                   style="width:100%;max-height:400px;object-fit:contain;border-radius:var(--radius-md);display:block;">
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Image sidebar -->
+        <div class="sidebar-panel">
+
+          <!-- Status -->
+          <div class="info-card">
+            <h3>System Status</h3>
+            <div class="status-row">
+              <span class="key">Model</span>
+              <span class="val" id="imageModelStatus">—</span>
+            </div>
+            <div class="status-row">
+              <span class="key">Classes</span>
+              <span class="val" id="imageLabelCount">—</span>
+            </div>
+          </div>
+
+          <!-- Detection result card -->
+          <div class="info-card">
+            <h3>🎯 Detection Result</h3>
+            <div class="detection-badge" id="imageDetectionBadge" style="border-color:rgba(168,85,247,0.3);background:rgba(168,85,247,0.07);">
+              <span class="label-text" id="imageDetectionLabel" style="color:var(--neon-purple);">Upload an image to detect</span>
+              <span class="label-hint" id="imageDetectionHint">Supports all 85 road sign classes</span>
+            </div>
+          </div>
+
+          <!-- Voice controls -->
+          <div class="info-card">
+            <h3>Voice Alert</h3>
+            <div class="btn-group">
+              <button class="btn btn-purple" id="imageSpeakBtn" onclick="speakImage()" disabled>
+                🔊 Speak Result
+              </button>
+              <button class="btn btn-ghost" onclick="ttsTest()">
+                🔊 Test Speaker
+              </button>
+            </div>
+          </div>
+
+          <!-- History -->
+          <div class="info-card">
+            <h3>📋 Recent Uploads</h3>
+            <div class="history-list" id="imageHistory">
+              <p style="color:var(--text-muted);font-size:0.8rem;text-align:center;padding:8px;">No uploads yet</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /panelImage -->
+
+  </div><!-- /panels-wrapper -->
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="app-footer">
+    Road Sign Detection System &nbsp;|&nbsp; Powered by TensorFlow &amp; Flask &nbsp;|&nbsp; 85 Sign Classes
+  </footer>
+
+<script>
+// ===========================================================
+//  STATE
+// ===========================================================
+let liveDetecting = false;
+let videoStreaming = false;
+let liveLastLabel  = null;
+let videoLastLabel = null;
+let imageLastLabel = null;
+let liveAutoSpeakLast  = null;
+let videoAutoSpeakLast = null;
+let liveHistory   = [];
+let videoHistory  = [];
+let imageHistory  = [];
+const MAX_HISTORY = 12;
+
+// ===========================================================
+//  TAB SWITCHING
+// ===========================================================
+function switchTab(name) {
+  ['live','video','image'].forEach(t => {
+    document.getElementById('panel' + cap(t)).classList.remove('active');
+    document.getElementById('tab' + cap(t)).classList.remove('active');
+  });
+  document.getElementById('panel' + cap(name)).classList.add('active');
+  document.getElementById('tab' + cap(name)).classList.add('active');
+}
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ===========================================================
+//  LIVE CAMERA
+// ===========================================================
+async function startLiveDetection() {
+  try {
+    const res = await fetch('/start', { method: 'POST' });
+    const d = await res.json();
+    if (d.status === 'success') {
+      liveDetecting = true;
+      document.getElementById('liveVideoFeed').src = '/video_feed?t=' + Date.now();
+      document.getElementById('liveStartBtn').disabled = true;
+      document.getElementById('liveStopBtn').disabled  = false;
+      document.getElementById('liveCameraStatus').textContent = 'Active';
+      document.getElementById('liveCameraStatus').className  = 'val active-green';
+      document.getElementById('liveIndicator').classList.add('on');
+      document.getElementById('liveDetectionHint').textContent = 'Detecting…';
+      toast('Live detection started', 'success');
+    } else { toast(d.message, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function stopLiveDetection() {
+  try {
+    const res = await fetch('/stop', { method: 'POST' });
+    const d = await res.json();
+    if (d.status === 'success') {
+      liveDetecting = false;
+      document.getElementById('liveVideoFeed').src = '/video_placeholder?t=' + Date.now();
+      document.getElementById('liveStartBtn').disabled = false;
+      document.getElementById('liveStopBtn').disabled  = true;
+      document.getElementById('liveCameraStatus').textContent = 'Stopped';
+      document.getElementById('liveCameraStatus').className  = 'val inactive-red';
+      document.getElementById('liveIndicator').classList.remove('on');
+      toast('Detection stopped', 'success');
+    } else { toast(d.message, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function speakLive() {
+  await doSpeak('live');
+}
+
+// ===========================================================
+//  VIDEO UPLOAD
+// ===========================================================
+document.getElementById('videoFileInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  toast('Uploading video…', 'info');
+  try {
+    const res = await fetch('/upload_video', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.status === 'success') {
+      showVideoFile(file, d.filename);
+      toast('Video uploaded', 'success');
+    } else { toast(d.message, 'error'); }
+  } catch(e) { toast('Upload error: ' + e.message, 'error'); }
+});
+
+function showVideoFile(file, name) {
+  document.getElementById('videoUploadZoneWrap').style.display = 'none';
+
+  const bar = document.getElementById('videoFileBar');
+  bar.style.display = 'flex';
+  document.getElementById('videoFileName').textContent = name || file.name;
+
+  const previewArea = document.getElementById('videoPreviewArea');
+  const player = document.getElementById('videoPreviewPlayer');
+  player.src = URL.createObjectURL(file);
+  previewArea.style.display = 'block';
+
+  document.getElementById('videoActionRow').style.display = 'block';
+}
+
+function clearVideo() {
+  document.getElementById('videoUploadZoneWrap').style.display = 'block';
+  document.getElementById('videoFileBar').style.display = 'none';
+  document.getElementById('videoPreviewArea').style.display = 'none';
+  document.getElementById('videoStreamArea').style.display  = 'none';
+  document.getElementById('videoActionRow').style.display   = 'none';
+  document.getElementById('videoAnalysisCard').style.display = 'none';
+  document.getElementById('videoPreviewPlayer').src = '';
+  document.getElementById('videoFileInput').value = '';
+  videoStreaming = false;
+  document.getElementById('videoStartBtn').disabled = false;
+  document.getElementById('videoStopBtn').disabled  = true;
+  document.getElementById('videoStreamStatus').textContent = 'Idle';
+  document.getElementById('videoStreamStatus').className  = 'val inactive-red';
+}
+
+async function startVideoDetection() {
+  try {
+    const res = await fetch('/start', { method: 'POST' });
+    const d = await res.json();
+    if (d.status === 'success') {
+      videoStreaming = true;
+      // Show stream overlay
+      document.getElementById('videoPreviewArea').style.display = 'none';
+      const streamArea = document.getElementById('videoStreamArea');
+      streamArea.style.display = 'block';
+      document.getElementById('videoStreamFeed').src = '/video_feed?t=' + Date.now();
+
+      document.getElementById('videoStartBtn').disabled = true;
+      document.getElementById('videoStopBtn').disabled  = false;
+      document.getElementById('videoStreamStatus').textContent = 'Streaming';
+      document.getElementById('videoStreamStatus').className  = 'val active-green';
+      toast('Video detection started', 'success');
+    } else { toast(d.message, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function stopVideoDetection() {
+  try {
+    const res = await fetch('/stop', { method: 'POST' });
+    const d = await res.json();
+    if (d.status === 'success') {
+      videoStreaming = false;
+      document.getElementById('videoStreamArea').style.display  = 'none';
+      document.getElementById('videoPreviewArea').style.display = 'block';
+      document.getElementById('videoStartBtn').disabled = false;
+      document.getElementById('videoStopBtn').disabled  = true;
+      document.getElementById('videoStreamStatus').textContent = 'Stopped';
+      document.getElementById('videoStreamStatus').className  = 'val inactive-red';
+      toast('Stream stopped', 'success');
+    } else { toast(d.message, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function analyzeVideoFrames() {
+  const btn = document.getElementById('analyzeFramesBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Analyzing…';
+  const card = document.getElementById('videoAnalysisCard');
+  card.style.display = 'block';
+  document.getElementById('analysisSummary').textContent = 'Processing 50 frames… please wait.';
+  document.getElementById('analysisFrameList').innerHTML = '';
+
+  try {
+    const res = await fetch('/analyze_video', { method: 'POST' });
+    const d   = await res.json();
+    if (d.status === 'success') {
+      const all      = d.detections;
+      const found    = all.filter(x => x.label !== 'No sign detected');
+      document.getElementById('analysisCount').textContent =
+        `${d.frames_analyzed} frames / ${found.length} detections`;
+      document.getElementById('analysisSummary').innerHTML =
+        `<strong style="color:var(--neon-blue)">${d.frames_analyzed}</strong> frames analyzed &nbsp;|&nbsp; `+
+        `<strong style="color:var(--neon-green)">${found.length}</strong> signs detected`;
+
+      if (all.length === 0) {
+        document.getElementById('analysisFrameList').innerHTML =
+          '<p style="color:var(--text-muted);padding:12px 18px;">No frames could be read.</p>';
+      } else {
+        document.getElementById('analysisFrameList').innerHTML =
+          all.map(x => {
+            const hit = x.label !== 'No sign detected';
+            return `<div class="analysis-row">
+              <span class="a-label ${hit?'found':'none'}">${x.label}</span>
+              <span class="a-meta">Frame ${x.frame_number} &nbsp;|&nbsp; ${x.timestamp}s &nbsp;|&nbsp; ${(x.confidence*100).toFixed(1)}%</span>
+            </div>`;
+          }).join('');
+      }
+      // Update video detection badge with most common found sign
+      if (found.length > 0) {
+        const freq = {};
+        found.forEach(x => freq[x.label] = (freq[x.label]||0)+1);
+        const top = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0][0];
+        updateVideoDetection(top);
+      }
+      toast(`Analysis done: ${found.length} signs found`, 'success');
+    } else {
+      document.getElementById('analysisSummary').textContent = 'Error: ' + d.message;
+      toast(d.message, 'error');
+    }
+  } catch(e) {
+    document.getElementById('analysisSummary').textContent = 'Error: ' + e.message;
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Analyze 50 Frames';
+  }
+}
+
+async function speakVideo() {
+  await doSpeak('video');
+}
+
+// ===========================================================
+//  IMAGE UPLOAD
+// ===========================================================
+document.getElementById('imageFileInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  toast('Processing image…', 'info');
+  try {
+    const res = await fetch('/upload_image', { method: 'POST', body: fd });
+    const d   = await res.json();
+    if (d.status === 'success') {
+      if (d.image_preview) {
+        const img = document.getElementById('imagePreviewImg');
+        img.src = d.image_preview;
+        document.getElementById('imageResultBox').style.display = 'block';
+      }
+      const label = d.label || 'No sign detected';
+      updateImageDetection(label);
+      addHistory('image', label);
+      document.getElementById('imageSpeakBtn').disabled = (label === 'No sign detected');
+      imageLastLabel = label;
+      toast('Image processed: ' + label, 'success');
+    } else { toast(d.message || 'Upload failed', 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+});
+
+async function speakImage() {
+  await doSpeak('image');
+}
+
+function updateImageDetection(label) {
+  const badge = document.getElementById('imageDetectionBadge');
+  document.getElementById('imageDetectionLabel').textContent = label;
+  if (label && label !== 'No sign detected') {
+    badge.style.borderColor = 'rgba(168,85,247,0.6)';
+    badge.style.background  = 'rgba(168,85,247,0.15)';
+    badge.style.boxShadow   = '0 0 20px rgba(168,85,247,0.15)';
+  } else {
+    badge.style.borderColor = 'rgba(168,85,247,0.3)';
+    badge.style.background  = 'rgba(168,85,247,0.07)';
+    badge.style.boxShadow   = '';
+  }
+}
+
+// ===========================================================
+//  COMMON SPEAK  — browser Web Speech API (cloud-compatible)
+// ===========================================================
+function doSpeak(source) {
+  if (!window.speechSynthesis) {
+    toast('Speech not supported in this browser', 'error'); return;
+  }
+  const label = source === 'image' ? imageLastLabel
+              : source === 'video' ? videoLastLabel
+              : liveLastLabel;
+  if (!label || label === 'No detection yet' || label === 'No sign detected') {
+    toast('No sign detected yet on this page.', 'error'); return;
+  }
+  const clean = label.replace(/_/g, ' ');
+  const utt = new SpeechSynthesisUtterance('Detected: ' + clean);
+  utt.rate = 0.9; utt.volume = 1.0;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utt);
+  toast('Speaking: ' + clean, 'success');
+}
+
+function ttsTest() {
+  if (!window.speechSynthesis) {
+    toast('Speech not supported in this browser', 'error'); return;
+  }
+  const utt = new SpeechSynthesisUtterance('This is a test of the road sign voice alert system.');
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utt);
+  toast('Playing test audio…', 'success');
+}
+
+// ===========================================================
+//  DETECTION BADGE HELPERS
+// ===========================================================
+function updateLiveDetection(label) {
+  const badge = document.getElementById('liveDetectionBadge');
+  document.getElementById('liveDetectionLabel').textContent = label;
+  document.getElementById('liveDetectionHint').textContent  = '';
+  if (label && label !== 'No detection yet') {
+    badge.classList.add('has-detection');
+    setTimeout(() => badge.classList.remove('has-detection'), 800);
+  }
+}
+
+function updateVideoDetection(label) {
+  const badge = document.getElementById('videoDetectionBadge');
+  document.getElementById('videoDetectionLabel').textContent = label;
+  if (label && label !== 'No detection yet') {
+    badge.classList.add('has-detection');
+    setTimeout(() => badge.classList.remove('has-detection'), 800);
+  }
+}
+
+// ===========================================================
+//  HISTORY
+// ===========================================================
+function addHistory(source, label) {
+  if (!label || label === 'No detection yet' || label === 'No sign detected') return;
+  const list = source === 'live' ? liveHistory : source === 'video' ? videoHistory : imageHistory;
+  const divId = source === 'live' ? 'liveHistory' : source === 'video' ? 'videoHistory' : 'imageHistory';
+  if (list.length > 0 && list[0].label === label) return;  // skip duplicate
+  const time = new Date().toLocaleTimeString();
+  list.unshift({ label, time });
+  if (list.length > MAX_HISTORY) list.pop();
+  const div = document.getElementById(divId);
+  div.innerHTML = list.map(it =>
+    `<div class="history-item">
+       <span class="h-label">${it.label}</span>
+       <span class="h-time">${it.time}</span>
+     </div>`
+  ).join('');
+}
+
+// ===========================================================
+//  STATUS POLLING (every 1s)
+// ===========================================================
+setInterval(async () => {
+  try {
+    const res = await fetch('/status');
+    const d   = await res.json();
+
+    // ---- Global model badge ----
+    const badge = document.getElementById('globalModelBadge');
+    const txt   = document.getElementById('globalModelText');
+    if (d.model_loaded) {
+      badge.classList.add('loaded');
+      txt.textContent = `Model ready · ${d.label_count} classes`;
+    } else {
+      badge.classList.remove('loaded');
+      txt.textContent = 'Model not loaded';
+    }
+
+    // ---- Per-panel model status ----
+    ['live','video','image'].forEach(p => {
+      const el = document.getElementById(p + 'ModelStatus');
+      if (el) {
+        el.textContent = d.model_loaded ? 'Loaded ✓' : 'Not loaded';
+        el.className   = 'val ' + (d.model_loaded ? 'loaded' : 'not-loaded');
+      }
+      const lc = document.getElementById(p + 'LabelCount');
+      if (lc) lc.textContent = d.label_count || '—';
+    });
+
+    // ---- Live panel detection update (uses its own per-source label) ----
+    const liveServerLabel = d.last_detected_label_live || d.last_detected_label;
+    if (liveDetecting && liveServerLabel && liveServerLabel !== 'No detection yet') {
+      if (liveServerLabel !== liveLastLabel) {
+        updateLiveDetection(liveServerLabel);
+        addHistory('live', liveServerLabel);
+        liveLastLabel = liveServerLabel;
+
+        // Auto speak for live only — browser Web Speech API
+        if (document.getElementById('liveAutoSpeak').checked &&
+            liveServerLabel !== liveAutoSpeakLast) {
+          liveAutoSpeakLast = liveServerLabel;
+          doSpeak('live');
+        }
+      }
+    }
+
+    // ---- Video streaming detection update (uses its own per-source label) ----
+    const videoServerLabel = d.last_detected_label_video || d.last_detected_label;
+    if (videoStreaming && videoServerLabel && videoServerLabel !== 'No detection yet') {
+      if (videoServerLabel !== videoLastLabel) {
+        updateVideoDetection(videoServerLabel);
+        addHistory('video', videoServerLabel);
+        videoLastLabel = videoServerLabel;
+
+        if (document.getElementById('videoAutoSpeak').checked &&
+            videoServerLabel !== videoAutoSpeakLast) {
+          videoAutoSpeakLast = videoServerLabel;
+          doSpeak('video');
+        }
+      }
+    }
+
+  } catch(e) { /* silent */ }
+}, 1000);
+
+// ===========================================================
+//  DRAG-AND-DROP
+// ===========================================================
+function setupDrop(zoneId, inputId) {
+  const zone  = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  if (!zone || !input) return;
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) {
+      const dt = new DataTransfer();
+      dt.items.add(e.dataTransfer.files[0]);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+    }
+  });
+}
+setupDrop('videoDropZone', 'videoFileInput');
+setupDrop('imageDropZone', 'imageFileInput');
+
+// ===========================================================
+//  TOAST
+// ===========================================================
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 350);
+  }, 3200);
+}
+</script>
+</body>
+</html>
