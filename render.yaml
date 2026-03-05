@@ -3,13 +3,12 @@ services:
     name: road-sign-detection
     env: python
     plan: free
+    pythonVersion: "3.11.0"
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --workers 1 --timeout 120 --bind 0.0.0.0:$PORT
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.0
       - key: MAX_UPLOAD_SIZE
-        value: 209715200   # 200 MB in bytes
+        value: 209715200
       - key: DATASET_PATH
         value: dataset/Train
     healthCheckPath: /status
