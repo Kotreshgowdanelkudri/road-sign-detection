@@ -602,34 +602,28 @@ function updateImageDetection(label) {
 }
 
 // ===========================================================
-//  COMMON SPEAK  — browser Web Speech API (cloud-compatible)
+//  COMMON SPEAK  — always sends which page is calling
 // ===========================================================
-function doSpeak(source) {
-  if (!window.speechSynthesis) {
-    toast('Speech not supported in this browser', 'error'); return;
-  }
-  const label = source === 'image' ? imageLastLabel
-              : source === 'video' ? videoLastLabel
-              : liveLastLabel;
-  if (!label || label === 'No detection yet' || label === 'No sign detected') {
-    toast('No sign detected yet on this page.', 'error'); return;
-  }
-  const clean = label.replace(/_/g, ' ');
-  const utt = new SpeechSynthesisUtterance('Detected: ' + clean);
-  utt.rate = 0.9; utt.volume = 1.0;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utt);
-  toast('Speaking: ' + clean, 'success');
+async function doSpeak(source) {
+  try {
+    const res = await fetch('/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source })
+    });
+    const d = await res.json();
+    if (d.status === 'success') toast(d.message, 'success');
+    else toast(d.message, 'error');
+  } catch(e) { toast('Speak error: ' + e.message, 'error'); }
 }
 
-function ttsTest() {
-  if (!window.speechSynthesis) {
-    toast('Speech not supported in this browser', 'error'); return;
-  }
-  const utt = new SpeechSynthesisUtterance('This is a test of the road sign voice alert system.');
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utt);
-  toast('Playing test audio…', 'success');
+async function ttsTest() {
+  try {
+    const res = await fetch('/tts_test', { method: 'POST' });
+    const d   = await res.json();
+    if (d.status === 'success') toast('Playing test audio…', 'success');
+    else toast(d.message || 'TTS test failed', 'error');
+  } catch(e) { toast('TTS error: ' + e.message, 'error'); }
 }
 
 // ===========================================================
@@ -712,11 +706,15 @@ setInterval(async () => {
         addHistory('live', liveServerLabel);
         liveLastLabel = liveServerLabel;
 
-        // Auto speak for live only — browser Web Speech API
+        // Auto speak for live only — sends source:'live'
         if (document.getElementById('liveAutoSpeak').checked &&
             liveServerLabel !== liveAutoSpeakLast) {
           liveAutoSpeakLast = liveServerLabel;
-          doSpeak('live');
+          fetch('/speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'live' })
+          }).catch(() => {});
         }
       }
     }
@@ -732,7 +730,11 @@ setInterval(async () => {
         if (document.getElementById('videoAutoSpeak').checked &&
             videoServerLabel !== videoAutoSpeakLast) {
           videoAutoSpeakLast = videoServerLabel;
-          doSpeak('video');
+          fetch('/speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'video' })
+          }).catch(() => {});
         }
       }
     }
