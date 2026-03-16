@@ -12,6 +12,7 @@ How this app works:
    This makes the app fully compatible with cloud deployments like Render.
 """
 import os
+import gc
 
 # Suppress TensorFlow CPU optimization warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -482,6 +483,11 @@ def upload_image():
         if detected_label:
             last_detected_label_image = detected_label
 
+        # Clean up memory
+        del image
+        del processed_image
+        gc.collect()
+
         return jsonify({
             'status': 'success',
             'label': detected_label or 'No sign detected',
@@ -564,7 +570,7 @@ def analyze_video():
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0  # Default to 25fps if unknown
         if fps <= 0:
             fps = 25.0
-        num_samples = 50  # We analyze exactly 50 frames
+        num_samples = 30  # Reduced to 30 frames to prevent OOM limits on Render
 
         if total_frames <= 0:
             cap.release()
@@ -572,7 +578,7 @@ def analyze_video():
 
         # Calculate evenly spaced frame numbers across the full video
         if total_frames <= num_samples:
-            frame_indices = list(range(total_frames))  # Video shorter than 50 frames
+            frame_indices = list(range(total_frames))  # Video shorter than 30 frames
         else:
             step = total_frames / num_samples
             frame_indices = [int(i * step) for i in range(num_samples)]
@@ -611,7 +617,16 @@ def analyze_video():
                         best_label = lbl or 'No sign detected'
                 except Exception as e:
                     print(f"Prediction skipped for ROI due to error: {e}")
-                    continue
+                
+                # Free memory immediately
+                del roi
+                gc.collect()
+
+            # Free memory immediately
+            del frame
+            del frame_resized
+            del bboxes
+            gc.collect()
 
             # Calculate the timestamp in seconds from the frame number
             timestamp = round(idx / fps, 2)
@@ -626,6 +641,9 @@ def analyze_video():
             cap.release()
         except:
             pass
+
+        # Final cleanup before sending response
+        gc.collect()
 
         return jsonify({
             'status': 'success',
