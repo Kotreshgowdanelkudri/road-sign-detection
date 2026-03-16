@@ -84,6 +84,10 @@ def initialize_model():
     """
     global model, label_mapping
 
+    print("DEBUG: Starting initialize_model")
+    print(f"DEBUG: MODEL_PATH = {MODEL_PATH}")
+    print(f"DEBUG: os.path.exists(MODEL_PATH) = {os.path.exists(MODEL_PATH)}")
+
     if not os.path.exists(MODEL_PATH):
         print(f"WARNING: Model not found at {MODEL_PATH}")
         print("Please train the model first using train_model.py")
@@ -92,20 +96,25 @@ def initialize_model():
     try:
         # Use a custom loader to handle different TF versions
         from utils.model_loader import load_model_for_inference
+        print("DEBUG: About to load model")
         model = load_model_for_inference(MODEL_PATH)
-        print(f"Model loaded successfully from {MODEL_PATH}")
+        print(f"DEBUG: Model loaded successfully from {MODEL_PATH}")
     except Exception as e:
         print(f"ERROR: Could not load model from {MODEL_PATH}. Reason: {e}")
         model = None
         return False
 
     try:
+        print("DEBUG: Loading label mapping")
         label_mapping = load_label_mapping()
-        print("Label mapping loaded successfully.")
+        print(f"DEBUG: Label mapping loaded: {len(label_mapping) if label_mapping else 0} entries")
     except Exception as e:
         print(f"ERROR: Could not load label mapping. Reason: {e}")
         label_mapping = None
         return False
+
+    print("DEBUG: initialize_model completed successfully")
+    return True
     
     return True
 
