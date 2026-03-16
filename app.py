@@ -699,13 +699,12 @@ def get_status():
 # STARTUP
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Load the trained model into memory so it works with Gunicorn/production
+print("Initializing Road Sign Detection Application...")
+if not initialize_model():
+    print("WARNING: Running without model. Please train the model first.")
+
 if __name__ == '__main__':
-    print("Initializing Road Sign Detection Application...")
-
-    # Load the trained model into memory
-    if not initialize_model():
-        print("WARNING: Running without model. Please train the model first.")
-
     # NOTE: No TTS initialization needed — browser handles speech via Web Speech API
 
     print("\nStarting Flask server...")
