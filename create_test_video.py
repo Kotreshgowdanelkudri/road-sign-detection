@@ -12,8 +12,8 @@ print("CREATING TEST VIDEO FROM DATASET IMAGES")
 print("=" * 70)
 
 # Path to test dataset
-test_dataset_path = r"e:\Kotresh Rubixe\dataset\traffic_sign_classification_dataset\traffic_sign_classification_dataset\test"
-output_video_path = r"e:\Kotresh Rubixe\road-sign-app\uploads\test_signs_video.mp4"
+test_dataset_path = r"e:\Rubixe Updated\Kotresh Rubixe\dataset\traffic_sign_classification_dataset\traffic_sign_classification_dataset\test"
+output_video_path = r"e:\Rubixe Updated\Kotresh Rubixe\road-sign-app\uploads\test_signs_video.mp4"
 
 # Get all image files from test dataset (limit to first 50 for reasonable video length)
 print("\n[1] Collecting images from test dataset...")
@@ -34,7 +34,7 @@ if len(image_files) == 0:
     exit(1)
 
 # Video settings
-fps = 0.15  # 0.15 frames per second (each sign shows for ~6.7 seconds - VERY SLOW for demo)
+fps = 1.0  # 1 frame per second (each sign shows for 1 second - valid for VideoWriter)
 frame_size = (640, 640)  # Standard size
 
 print(f"\n[2] Creating video...")
