@@ -17,8 +17,8 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "model", "model.h5")
+print("Model path:", MODEL_PATH)
+print("Model exists:", os.path.exists(MODEL_PATH))
 
 import base64
 import cv2
