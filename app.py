@@ -15,10 +15,6 @@ import os
 
 # Suppress TensorFlow CPU optimization warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import os
-
-print("Model path:", MODEL_PATH)
-print("Model exists:", os.path.exists(MODEL_PATH))
 
 import base64
 import cv2
