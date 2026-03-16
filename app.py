@@ -12,6 +12,10 @@ How this app works:
    This makes the app fully compatible with cloud deployments like Render.
 """
 import os
+
+# Suppress TensorFlow CPU optimization warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import base64
 import cv2
 import numpy as np
