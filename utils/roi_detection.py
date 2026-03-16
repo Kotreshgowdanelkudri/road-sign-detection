@@ -1,6 +1,13 @@
 """
 ROI (Region of Interest) detection for traffic signs
 Uses color-based segmentation and contour detection
+
+How it works:
+ 1. Convert the frame to HSV color space
+ 2. Find red, blue, and yellow colored areas (these are sign colors)
+ 3. Find the shape outlines (contours) of those colored areas
+ 4. Filter out shapes that are too small, too large, or the wrong shape
+ 5. Return bounding boxes around likely sign locations
 """
 import cv2
 import numpy as np
@@ -14,43 +21,44 @@ from config import (
 
 def detect_color_regions(frame):
     """
-    Detect red, blue, and yellow regions in the frame using HSV color space.
-    Uses expanded ranges for robustness to lighting and faded signs.
-    Args:
-        frame: input frame (BGR)
-    Returns: combined mask of sign-colored regions
+    Finds all red, blue, and yellow areas in the image.
+    
+    We use HSV color space instead of RGB because HSV is more consistent
+    across different lighting conditions — a red sign in shadow still looks
+    red in HSV, but might look brown or dark in RGB.
+    
+    Returns a binary mask (black/white image) where white = possible sign area.
     """
-    # Detect red, blue, and yellow regions.
+    # Convert the image from BGR (default in OpenCV) to HSV color space
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    
-    # Red color detection (two ranges because red wraps around in HSV)
-    red_mask1 = cv2.inRange(hsv, HSV_RED_LOWER1, HSV_RED_UPPER1)
-    red_mask2 = cv2.inRange(hsv, HSV_RED_LOWER2, HSV_RED_UPPER2)
-    red_mask = cv2.bitwise_or(red_mask1, red_mask2)
-    
-    # Blue color detection
+
+    # Red is tricky in HSV — it wraps around from 180 back to 0
+    # So we need two ranges to catch all shades of red
+    red_mask1 = cv2.inRange(hsv, HSV_RED_LOWER1, HSV_RED_UPPER1)   # Low-hue reds
+    red_mask2 = cv2.inRange(hsv, HSV_RED_LOWER2, HSV_RED_UPPER2)   # High-hue reds
+    red_mask = cv2.bitwise_or(red_mask1, red_mask2)                  # Combine both
+
+    # Simple single-range detection for blue and yellow signs
     blue_mask = cv2.inRange(hsv, HSV_BLUE_LOWER, HSV_BLUE_UPPER)
-    
-    # Yellow color detection (warning signs)
     yellow_mask = cv2.inRange(hsv, HSV_YELLOW_LOWER, HSV_YELLOW_UPPER)
-    
-    # Combine masks
+
+    # Merge all three color masks into one — any sign color counts
     combined_mask = cv2.bitwise_or(cv2.bitwise_or(red_mask, blue_mask), yellow_mask)
-    
-    # Morphological operations to reduce noise
+
+    # Clean up the mask using morphological operations:
+    # MORPH_CLOSE fills small holes inside detected regions (e.g. white text on red sign)
+    # MORPH_OPEN removes small random dots (noise from similar-colored objects in background)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
     combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
-    
+
     return combined_mask
 
 
 def extract_contours(mask):
     """
-    Extract contours from binary mask
-    Args:
-        mask: binary mask
-    Returns: list of contours
+    Finds the outlines (contours) of all white regions in the binary mask.
+    Each contour is the boundary of a colored region — possibly a sign.
     """
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     return contours
@@ -58,130 +66,133 @@ def extract_contours(mask):
 
 def filter_contours_by_shape(contours, frame_shape):
     """
-    Filter contours by area and shape characteristics
-    Args:
-        contours: list of contours
-        frame_shape: shape of the frame
-    Returns: filtered list of bounding boxes [(x, y, w, h), ...]
+    Filters detected contours to only keep shapes that could realistically be a sign.
+    
+    We remove:
+    - Very small regions (noise/artifacts)
+    - Very large regions (sky, road, buildings)
+    - Very thin or very wide shapes (not traffic signs — they're roughly square)
+    - Very sparse shapes (too few pixels relative to the bounding box)
+    
+    Returns a list of bounding boxes for the shapes that pass all filters.
     """
     bounding_boxes = []
-    
+
     for contour in contours:
         area = cv2.contourArea(contour)
-        
-        # Filter by area
+
+        # Skip if too small (just noise) or too large (background objects)
         if area < MIN_CONTOUR_AREA or area > MAX_CONTOUR_AREA:
             continue
-        
-        # Get bounding rectangle
+
+        # Get the bounding rectangle around this contour
         x, y, w, h = cv2.boundingRect(contour)
-        
-        # Filter by aspect ratio (traffic signs are roughly square or circular;
-        # allow slightly wider range for rectangular signs like Axle Load Limit)
+
+        # Check aspect ratio — signs are roughly square or slightly rectangular
+        # Very thin or very wide shapes are probably not signs
         aspect_ratio = float(w) / h if h > 0 else 0
         if aspect_ratio < 0.4 or aspect_ratio > 2.5:
             continue
-        
-        # Filter by extent (ratio of contour area to bounding box area)
+
+        # Check extent — how densely the contour fills its bounding box
+        # A very sparse contour (e.g. just an outline) is probably not a sign
         rect_area = w * h
         extent = float(area) / rect_area if rect_area > 0 else 0
-        if extent < 0.3:  # Too sparse
+        if extent < 0.3:  # Less than 30% filled = too sparse
             continue
-        
+
         bounding_boxes.append((x, y, w, h))
-    
+
     return bounding_boxes
 
 
 def make_square_bbox(x, y, w, h, frame_shape):
     """
-    Convert bounding box to square by expanding the smaller dimension
-    Args:
-        x, y, w, h: bounding box coordinates
-        frame_shape: shape of the frame (height, width, channels)
-    Returns: square bounding box (x, y, size, size)
-    """
-    # Use the larger dimension
-    size = max(w, h)
+    Converts a rectangular bounding box into a square.
     
-    # Center the square on the original bbox
+    The CNN model expects square inputs (64x64), so we expand the shorter
+    side of the detection box to make it square. We center it on the
+    original detection and make sure it stays within the image boundaries.
+    """
+    # Use the longer side as the square size
+    size = max(w, h)
+
+    # Center the square on the original detection
     center_x = x + w // 2
     center_y = y + h // 2
-    
-    # Calculate new top-left corner
     new_x = max(0, center_x - size // 2)
     new_y = max(0, center_y - size // 2)
-    
-    # Ensure bbox doesn't exceed frame boundaries
+
+    # Make sure the box doesn't go outside the image
     if new_x + size > frame_shape[1]:
         new_x = frame_shape[1] - size
     if new_y + size > frame_shape[0]:
         new_y = frame_shape[0] - size
-    
-    # Ensure coordinates are non-negative
+
     new_x = max(0, new_x)
     new_y = max(0, new_y)
-    
-    # Adjust size if necessary
+
+    # Clamp size in case it still overflows at the edges
     size = min(size, frame_shape[1] - new_x, frame_shape[0] - new_y)
-    
+
     return (new_x, new_y, size, size)
 
 
 def detect_roi_color_based(frame):
     """
-    Detect ROIs using color-based segmentation
-    Args:
-        frame: input frame (BGR)
-    Returns: list of ROI bounding boxes [(x, y, w, h), ...]
+    Main function: detects all possible sign regions in a frame using color.
+    
+    Pipeline:
+      1. detect_color_regions → get a mask of red/blue/yellow pixels
+      2. extract_contours → get outlines of those colored blobs
+      3. filter_contours_by_shape → remove non-sign-shaped blobs
+      4. make_square_bbox → convert each bbox to square for the model
+    
+    Returns a list of square bounding boxes where signs might be.
     """
-    # Detect color regions
     mask = detect_color_regions(frame)
-    
-    # Extract contours
     contours = extract_contours(mask)
-    
-    # Filter contours
     bboxes = filter_contours_by_shape(contours, frame.shape)
-    
-    # Convert to square bounding boxes
+
+    # Convert every detected bounding box to a square
     square_bboxes = []
     for bbox in bboxes:
         square_bbox = make_square_bbox(*bbox, frame.shape)
         square_bboxes.append(square_bbox)
-    
+
     return square_bboxes
 
 
 def get_smart_region_candidates(frame, max_candidates=12):
     """
-    Smart fallback when color-based ROI fails. Returns overlapping regions
-    (center crops + grid) so the model can find signs anywhere in the image.
-    Good for uploaded images where the sign may not have typical red/blue colors.
-    Args:
-        frame: input frame
-        max_candidates: limit number of regions to try (for performance)
-    Returns: list of bounding boxes [(x, y, w, h), ...]
+    Fallback strategy when color-based detection finds nothing.
+    
+    Some signs don't have strong red/blue/yellow — they may be faded,
+    poorly lit, or photographed straight-on. In that case, we try multiple
+    cropped regions of the image: the center, smaller crops, and corners.
+    
+    The model then checks all of them and picks the most confident result.
+    This is slower but helps when color detection fails.
     """
     height, width = frame.shape[:2]
     candidates = []
     base_size = min(height, width, 256)
 
-    # ALWAYS include the full frame first — critical for uploaded images where
-    # the sign fills most or all of the frame (e.g. Cattle, Axle Load Limit)
+    # Always include the full frame first — if someone uploaded an image
+    # of just a sign, the whole image IS the sign
     candidates.append((0, 0, width, height))
 
-    # Center crop at multiple scales
+    # Try center crops at different zoom levels (100%, 75%, 50%)
     for scale in [1.0, 0.75, 0.5]:
         size = int(base_size * scale)
         if size < 48:
-            continue
+            continue  # Too small to be useful
         x = (width - size) // 2
         y = (height - size) // 2
         if x >= 0 and y >= 0 and x + size <= width and y + size <= height:
             candidates.append((x, y, size, size))
 
-    # 2x2 grid (covers corners - signs often at edges)
+    # Also check the 4 corners — signs are sometimes at the edges of the frame
     grid_size = min(width, height) // 2
     if grid_size >= 64:
         for gy in [0, height - grid_size]:
@@ -190,7 +201,7 @@ def get_smart_region_candidates(frame, max_candidates=12):
                 gy = max(0, min(gy, height - grid_size))
                 candidates.append((int(gx), int(gy), grid_size, grid_size))
 
-    # Deduplicate and limit
+    # Remove duplicates (boxes that are almost identical)
     seen = set()
     unique = []
     for c in candidates:
@@ -201,7 +212,7 @@ def get_smart_region_candidates(frame, max_candidates=12):
         if len(unique) >= max_candidates:
             break
 
-    # Fallback: full frame
+    # If something went wrong and we have nothing, default to full frame
     if not unique:
         unique = [(0, 0, width, height)]
     return unique
@@ -209,31 +220,27 @@ def get_smart_region_candidates(frame, max_candidates=12):
 
 def sliding_window_detection(frame, window_sizes=[64, 96, 128], step_size=32):
     """
-    Fallback sliding window detection
-    Args:
-        frame: input frame
-        window_sizes: list of window sizes to try
-        step_size: step size for sliding
-    Returns: list of candidate windows [(x, y, w, h), ...]
+    Alternative fallback: scan the entire image with small sliding windows.
+    
+    This is computationally expensive so it's not used in the main pipeline,
+    but it's here as a utility if needed for more thorough scanning.
     """
     candidates = []
     height, width = frame.shape[:2]
-    
+
+    # Slide a window of each size across the image
     for win_size in window_sizes:
         for y in range(0, height - win_size, step_size):
             for x in range(0, width - win_size, step_size):
                 candidates.append((x, y, win_size, win_size))
-    
+
     return candidates
 
 
 def extract_roi(frame, bbox):
     """
-    Extract ROI from frame given bounding box
-    Args:
-        frame: input frame
-        bbox: bounding box (x, y, w, h)
-    Returns: cropped ROI
+    Crops out a region of interest from the frame using a bounding box.
+    This gives us just the sign portion to pass into the CNN model.
     """
     x, y, w, h = bbox
     roi = frame[y:y+h, x:x+w]
@@ -242,120 +249,123 @@ def extract_roi(frame, bbox):
 
 def draw_detection(frame, bbox, label, confidence, draw_bbox=True, mask_background=False):
     """
-    Draw detection on frame
-    Args:
-        frame: input frame
-        bbox: bounding box (x, y, w, h)
-        label: detected label text
-        confidence: confidence score
-        draw_bbox: whether to draw bounding box
-        mask_background: whether to mask background (show only ROI)
-    Returns: annotated frame
+    Draws the detection result on the frame for the user to see.
+    
+    - Green box = high confidence (above the threshold)
+    - Orange box = low confidence (showing a "best guess")
+    - Label and confidence score shown above the box
     """
     x, y, w, h = bbox
-    
+
     if mask_background:
-        # Create a black mask
+        # Black out everything except the detected region
+        # (not used in main flow but useful for debugging)
         mask = np.zeros_like(frame)
-        # Copy only the ROI
         mask[y:y+h, x:x+w] = frame[y:y+h, x:x+w]
         frame = mask
-    
+
     if draw_bbox:
-        # Draw bounding box
+        # Green = confident detection, Orange = uncertain best guess
         color = (0, 255, 0) if confidence > CONFIDENCE_THRESHOLD else (0, 165, 255)
+
+        # Draw the rectangle around the detected region
         cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-        
-        # Draw label and confidence
+
+        # Prepare the label text: "Stop Sign: 0.87"
         label_text = f"{label}: {confidence:.2f}"
-        
-        # Calculate text size for background
+
+        # Calculate how much space the text needs
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.6
         thickness = 2
         (text_width, text_height), baseline = cv2.getTextSize(
             label_text, font, font_scale, thickness
         )
-        
-        # Draw background rectangle for text
+
+        # Draw a colored rectangle behind the text so it's readable on any background
         cv2.rectangle(
             frame,
             (x, y - text_height - baseline - 5),
             (x + text_width, y),
             color,
-            -1
+            -1  # -1 means fill the rectangle
         )
-        
-        # Draw text
+
+        # Draw the white text on top of the colored background
         cv2.putText(
             frame,
             label_text,
             (x, y - baseline - 5),
             font,
             font_scale,
-            (255, 255, 255),
+            (255, 255, 255),  # White text
             thickness
         )
-    
+
     return frame
 
 
 def non_max_suppression(bboxes, overlap_threshold=0.3):
     """
-    Apply non-maximum suppression to remove overlapping bounding boxes
-    Args:
-        bboxes: list of bounding boxes [(x, y, w, h), ...]
-        overlap_threshold: IoU threshold for suppression
-    Returns: filtered list of bounding boxes
+    Removes duplicate/overlapping bounding boxes, keeping only the best one.
+    
+    When multiple colored blobs are detected very close together (e.g. the red border
+    and the red inner areas of one sign), they'd produce overlapping boxes.
+    NMS merges them by keeping only the largest box and removing others that
+    overlap with it by more than 30% (the overlap_threshold).
+    
+    Uses IoU (Intersection over Union) to measure how much two boxes overlap.
     """
     if len(bboxes) == 0:
         return []
-    
-    # Convert to (x1, y1, x2, y2) format
+
+    # Convert (x, y, w, h) format to (x1, y1, x2, y2) — easier for overlap math
     boxes = []
     for (x, y, w, h) in bboxes:
         boxes.append([x, y, x+w, y+h])
     boxes = np.array(boxes)
-    
-    # Calculate areas
+
+    # Get the four corner coordinates for all boxes at once
     x1 = boxes[:, 0]
     y1 = boxes[:, 1]
     x2 = boxes[:, 2]
     y2 = boxes[:, 3]
     areas = (x2 - x1) * (y2 - y1)
-    
-    # Sort by area (larger boxes first)
+
+    # Sort by area — we process larger boxes first
     indices = np.argsort(areas)[::-1]
-    
+
     keep = []
     while len(indices) > 0:
-        # Keep the largest box
+        # Keep the largest remaining box
         i = indices[0]
         keep.append(i)
-        
-        # Calculate IoU with remaining boxes
+
+        # Calculate how much each remaining box overlaps with the one we just kept
         xx1 = np.maximum(x1[i], x1[indices[1:]])
         yy1 = np.maximum(y1[i], y1[indices[1:]])
         xx2 = np.minimum(x2[i], x2[indices[1:]])
         yy2 = np.minimum(y2[i], y2[indices[1:]])
-        
+
         w = np.maximum(0, xx2 - xx1)
         h = np.maximum(0, yy2 - yy1)
-        
+
         intersection = w * h
         union = areas[i] + areas[indices[1:]] - intersection
-        # Avoid division by zero (e.g. identical/zero-area boxes)
+
+        # IoU = how much the boxes overlap relative to their combined area
+        # 0 = no overlap, 1 = identical boxes
         iou = np.where(union > 0, intersection / union, 0.0)
-        
-        # Keep boxes with low IoU
+
+        # Only keep boxes that don't heavily overlap with our chosen box
         indices = indices[1:][iou < overlap_threshold]
-    
+
     # Convert back to (x, y, w, h) format
     result = []
     for i in keep:
         x, y, x2, y2 = boxes[i]
         result.append((int(x), int(y), int(x2-x), int(y2-y)))
-    
+
     return result
 
 
