@@ -79,33 +79,27 @@ def initialize_model():
     if not os.path.exists(MODEL_PATH):
         print(f"WARNING: Model not found at {MODEL_PATH}")
         print("Please train the model first using train_model.py")
+        return False # Indicate failure to load model
+
+    try:
+        # Use a custom loader to handle different TF versions
+        from utils.model_loader import load_model_for_inference
+        model = load_model_for_inference(MODEL_PATH)
+        print(f"Model loaded successfully from {MODEL_PATH}")
+    except Exception as e:
+        print(f"ERROR: Could not load model from {MODEL_PATH}. Reason: {e}")
+        model = None
         return False
 
     try:
-        from utils.model_loader import load_compatible_model
-
-        # Load the label mapping first to know how many output classes exist
         label_mapping = load_label_mapping()
-        num_classes = len(label_mapping)
-        print(f"Label mapping loaded: {num_classes} classes")
-
-        # Load the model — the custom loader handles version compatibility issues
-        model = load_compatible_model(MODEL_PATH, num_classes)
-
-        if model is None:
-            print("Failed to load model")
-            return False
-
-        print(f"✓ Model loaded successfully!")
-        print(f"  Output shape: {model.output_shape}")
-        return True
+        print("Label mapping loaded successfully.")
     except Exception as e:
-        print(f"Error loading model: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"ERROR: Could not load label mapping. Reason: {e}")
+        label_mapping = None
         return False
-
-
+    
+    return True
 
 
 def allowed_file(filename, allowed_extensions):
