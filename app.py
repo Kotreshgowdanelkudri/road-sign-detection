@@ -598,10 +598,14 @@ def analyze_video():
                 roi = extract_roi(frame_resized, bbox)
                 if roi.size == 0:
                     continue
-                lbl, conf = predict_sign(roi, enhance=True)
-                if conf > best_conf and conf >= MIN_DISPLAY_CONFIDENCE:
-                    best_conf = conf
-                    best_label = lbl
+                try:
+                    lbl, conf = predict_sign(roi, enhance=True)
+                    if conf is not None and conf > best_conf and conf >= MIN_DISPLAY_CONFIDENCE:
+                        best_conf = conf
+                        best_label = lbl or 'No sign detected'
+                except Exception as e:
+                    print(f"Prediction skipped for ROI due to error: {e}")
+                    continue
 
             # Calculate the timestamp in seconds from the frame number
             timestamp = round(idx / fps, 2)
@@ -612,7 +616,10 @@ def analyze_video():
                 'confidence': round(best_conf, 4)
             })
 
-        cap.release()
+        try:
+            cap.release()
+        except:
+            pass
 
         return jsonify({
             'status': 'success',
@@ -624,8 +631,12 @@ def analyze_video():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
+        try:
+            if 'cap' in locals() and cap is not None:
+                cap.release()
+        except:
+            pass
+        return jsonify({'status': 'error', 'message': f"Analysis failed: {str(e)}"}), 500
 
 @app.route('/speak', methods=['POST'])
 def speak():
