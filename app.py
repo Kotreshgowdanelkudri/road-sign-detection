@@ -73,39 +73,40 @@ current_video_path = None  # Path to the currently uploaded video file
 def initialize_model():
     """
     Loads the trained model from disk when the app starts.
-    
-    We use a custom loader (model_loader.py) to handle different TensorFlow
-    versions that might save models in slightly different formats.
+
+    Uses model_loader.py which auto-detects the Keras version (2 or 3)
+    and applies the correct loading strategy for this TF installation.
     Also loads the label mapping so we can convert class IDs to sign names.
     """
     global model, label_mapping
+    import traceback
 
-    print("DEBUG: Starting initialize_model")
-    print(f"DEBUG: MODEL_PATH = {MODEL_PATH}")
-    print(f"DEBUG: os.path.exists(MODEL_PATH) = {os.path.exists(MODEL_PATH)}")
+    print(f"[INIT] MODEL_PATH = {MODEL_PATH}")
 
     if not os.path.exists(MODEL_PATH):
-        print(f"WARNING: Model not found at {MODEL_PATH}")
-        print("Please train the model first using train_model.py")
-        return False # Indicate failure to load model
+        print(f"[INIT] WARNING: Model file not found at {MODEL_PATH}")
+        print("[INIT] Please train the model first with: python train_model.py")
+        return False
 
     try:
-        # Use a custom loader to handle different TF versions
         from utils.model_loader import load_model_for_inference
-        print("DEBUG: About to load model")
         model = load_model_for_inference(MODEL_PATH)
-        print(f"DEBUG: Model loaded successfully from {MODEL_PATH}")
+        print(f"[INIT] Model loaded successfully from {MODEL_PATH}")
     except Exception as e:
-        print(f"ERROR: Could not load model from {MODEL_PATH}. Reason: {e}")
+        print(f"[INIT] ERROR loading model: {e}")
+        traceback.print_exc()
         model = None
         return False
 
     try:
-        print("DEBUG: Loading label mapping")
         label_mapping = load_label_mapping()
-        print(f"DEBUG: Label mapping loaded: {len(label_mapping) if label_mapping else 0} entries")
+        if label_mapping:
+            print(f"[INIT] Label mapping loaded successfully ({len(label_mapping)} classes).")
+        else:
+            print("[INIT] WARNING: label_mapping.json is empty or missing.")
     except Exception as e:
-        print(f"ERROR: Could not load label mapping. Reason: {e}")
+        print(f"[INIT] ERROR loading label mapping: {e}")
+        traceback.print_exc()
         label_mapping = None
         return False
 
@@ -136,8 +137,6 @@ def predict_sign(roi, enhance=False):
     
     Returns: (label_name, confidence) — e.g. ("Stop Sign", 0.94)
     """
-    global model, label_mapping
-
     # If the model hasn't loaded yet, we can't predict
     if model is None or label_mapping is None:
         return "Model not loaded", 0.0
@@ -635,8 +634,6 @@ def speak():
     The server responds with: { "status": "success", "label": "Stop Sign" }
     Then the browser calls: speechSynthesis.speak(new SpeechSynthesisUtterance(label))
     """
-    global last_detected_label_live, last_detected_label_video, last_detected_label_image
-
     # Read which page is calling (live, video, or image)
     data = request.get_json(silent=True) or {}
     source = data.get('source', 'live')
