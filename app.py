@@ -15,6 +15,10 @@ import os
 
 # Suppress TensorFlow CPU optimization warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "model", "model.h5")
 
 import base64
 import cv2
