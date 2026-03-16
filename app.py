@@ -531,7 +531,8 @@ def upload_video():
         return jsonify({
             'status': 'success',
             'message': 'Video uploaded successfully',
-            'filename': base or filename
+            'filename': filename,
+            'original_name': base
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
