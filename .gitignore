@@ -41,8 +41,7 @@ Thumbs.db
 desktop.ini
 
 # Project Specific
-model/*.h5
-model/*.pt
+
 uploads/*
 !uploads/.gitkeep
 dataset/
