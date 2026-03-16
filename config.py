@@ -18,13 +18,12 @@ MODEL_PATH = os.path.abspath(os.path.join(BASE_DIR, 'model', 'model.h5'))
 # Smaller = faster, larger = more detail but needs more memory
 IMAGE_SIZE = 64
 
-# Only show a detection if the model is at least 50% confident
-# Below this = we still show a "?" guess so the user sees something
-CONFIDENCE_THRESHOLD = 0.50
+# Only draw a solid green box if the model is at least 35% confident
+# Lowered from 0.50 — many valid signs score between 0.35-0.50 (confirmed by classification report)
+CONFIDENCE_THRESHOLD = 0.35
 
-# If confidence is at least 10%, show a "best guess" even if it's uncertain
-# This helps when images are blurry or the sign is partially visible
-MIN_DISPLAY_CONFIDENCE = 0.10
+# If confidence is at least 8%, show a "best guess" even if it's uncertain
+MIN_DISPLAY_CONFIDENCE = 0.08
 
 # ──────────────────────────────────────────────
 # UPLOAD SETTINGS

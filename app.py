@@ -238,17 +238,18 @@ def process_frame(frame, use_smart_fallback=True, source='live'):
 class VideoCamera:
     """
     Wraps OpenCV's VideoCapture to manage camera/video access.
-    
+
     Can handle:
     - Live webcam (source=0 means the first connected camera)
     - Uploaded video files (source = file path string)
-    
-    frame_count is used with FRAME_SKIP to only process every 5th frame
-    instead of every frame — this improves performance on live feeds.
+
+    'detection_source' tracks whether this is 'live' or 'video' so that
+    detections are stored in the correct label variable for each page.
     """
 
-    def __init__(self, source=0):
+    def __init__(self, source=0, detection_source='live'):
         self.source = source
+        self.detection_source = detection_source  # 'live' or 'video'
         self.video = cv2.VideoCapture(source)
         self.frame_count = 0
 
@@ -267,9 +268,10 @@ class VideoCamera:
     def get_frame(self):
         """
         Reads the next frame from the camera or video.
-        
+
         - If detection is off: just encode and return the raw frame
-        - If detection is on: process every 5th frame through the CNN pipeline
+        - If detection is on: process every FRAME_SKIP-th frame through the CNN pipeline
+        - detection_source ensures detection results go to the right label (live vs video)
         - Returns: JPEG-encoded bytes ready to send to the browser, or None at end of video
         """
         success, frame = self.video.read()
@@ -279,15 +281,17 @@ class VideoCamera:
 
         self.frame_count += 1
 
-        # Skip frames to improve speed — only process every FRAME_SKIP-th frame
-        if self.frame_count % FRAME_SKIP != 0:
-            # Just send the raw frame without running detection
+        # For video files, process every frame (no skip needed — slower but more detections)
+        # For live camera, skip frames to improve speed
+        skip = FRAME_SKIP if self.detection_source == 'live' else 2
+        if self.frame_count % skip != 0:
             ret, jpeg = cv2.imencode('.jpg', frame)
             return jpeg.tobytes()
 
         # Process this frame through the full detection pipeline
+        # Pass the correct source so the label goes to the right variable
         if detection_active:
-            frame, _ = process_frame(frame)
+            frame, _ = process_frame(frame, source=self.detection_source)
 
         # Encode the annotated frame as JPEG for streaming
         ret, jpeg = cv2.imencode('.jpg', frame)
@@ -396,11 +400,13 @@ def start_detection():
                 camera = None
 
             # Use the uploaded video if one exists, otherwise use live webcam
-            source = 0  # 0 = default webcam
-            if current_video_path and os.path.exists(current_video_path):
-                source = current_video_path
+            is_video_file = bool(current_video_path and os.path.exists(current_video_path))
+            source = current_video_path if is_video_file else 0
+            # IMPORTANT: pass the correct detection_source so labels update the
+            # right variable ('video' panel vs 'live' panel)
+            detection_src = 'video' if is_video_file else 'live'
 
-            camera = VideoCamera(source)
+            camera = VideoCamera(source, detection_source=detection_src)
             detection_active = True
 
         return jsonify({'status': 'success', 'message': 'Detection started'})
