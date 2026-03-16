@@ -24,16 +24,21 @@ def load_model_for_inference(model_path):
     """
     print(f"Loading native Keras model from {model_path}...")
     
-    # Map all layer types used in this model to our compatibility wrapper
-    # This prevents the: TypeError: Unrecognized keyword arguments passed to Dense: {'quantization_config': None}
-    custom_objects = {
-        'Dense': _make_keras_layer_compatible(Dense),
-        'Conv2D': _make_keras_layer_compatible(Conv2D),
-        'MaxPooling2D': _make_keras_layer_compatible(MaxPooling2D),
-        'BatchNormalization': _make_keras_layer_compatible(BatchNormalization),
-        'Dropout': _make_keras_layer_compatible(Dropout),
-        'Flatten': _make_keras_layer_compatible(Flatten)
-    }
-
-    # Compile=False makes loading much faster and avoids optimizer state issues
-    return load_model(model_path, custom_objects=custom_objects, compile=False)
+    # Try loading without custom objects first
+    try:
+        return load_model(model_path, compile=False)
+    except Exception as e:
+        print(f"Native loading failed: {e}")
+        print("Trying with compatibility wrappers...")
+        
+        # Fallback to compatibility wrappers
+        custom_objects = {
+            'Dense': _make_keras_layer_compatible(Dense),
+            'Conv2D': _make_keras_layer_compatible(Conv2D),
+            'MaxPooling2D': _make_keras_layer_compatible(MaxPooling2D),
+            'BatchNormalization': _make_keras_layer_compatible(BatchNormalization),
+            'Dropout': _make_keras_layer_compatible(Dropout),
+            'Flatten': _make_keras_layer_compatible(Flatten)
+        }
+        
+        return load_model(model_path, custom_objects=custom_objects, compile=False)
