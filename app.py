@@ -39,6 +39,9 @@ from utils.roi_detection import (
 )
 from utils.label_mapping import load_label_mapping
 
+# Keras backend to forcefully clear memory leaks on Render free tier
+import keras.backend as K
+
 # Create the Flask app — this is the main web server object
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -483,9 +486,10 @@ def upload_image():
         if detected_label:
             last_detected_label_image = detected_label
 
-        # Clean up memory
+        # Clean up memory to prevent Render from killing the worker
         del image
         del processed_image
+        K.clear_session() # Force TF to release prediction memory
         gc.collect()
 
         return jsonify({
@@ -570,7 +574,7 @@ def analyze_video():
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0  # Default to 25fps if unknown
         if fps <= 0:
             fps = 25.0
-        num_samples = 30  # Reduced to 30 frames to prevent OOM limits on Render
+        num_samples = 15  # Reduced to 15 frames to prevent Render Free Tier OOM limits
 
         if total_frames <= 0:
             cap.release()
@@ -622,10 +626,11 @@ def analyze_video():
                 del roi
                 gc.collect()
 
-            # Free memory immediately
+            # Free memory immediately to prevent Render OOM Kill
             del frame
             del frame_resized
             del bboxes
+            K.clear_session()  # Clear TensorFlow prediction graphs from RAM
             gc.collect()
 
             # Calculate the timestamp in seconds from the frame number
