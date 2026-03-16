@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ──────────────────────────────────────────────
 
 # Where the trained model file (.h5) is saved/loaded from
-MODEL_PATH = os.path.join(BASE_DIR, 'model', 'model.h5')
+MODEL_PATH = os.path.abspath(os.path.join(BASE_DIR, 'model', 'model.h5'))
 
 # All images will be resized to 64x64 before going into the model
 # Smaller = faster, larger = more detail but needs more memory
@@ -31,7 +31,7 @@ MIN_DISPLAY_CONFIDENCE = 0.10
 # ──────────────────────────────────────────────
 
 # Folder where uploaded images and videos are stored on disk
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+UPLOAD_FOLDER = os.path.abspath(os.path.join(BASE_DIR, 'uploads'))
 
 # Maximum file size for uploads — 200 MB by default
 # Can be changed with an environment variable MAX_UPLOAD_SIZE
@@ -48,10 +48,10 @@ ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv'}
 # ──────────────────────────────────────────────
 
 # Where the training images are stored — can be overridden with DATASET_PATH env variable
-DATASET_PATH = os.environ.get('DATASET_PATH', os.path.join(BASE_DIR, 'dataset', 'Train'))
+DATASET_PATH = os.path.abspath(os.environ.get('DATASET_PATH', os.path.join(BASE_DIR, 'dataset', 'Train')))
 
 # JSON file that maps class numbers (0, 1, 2...) to sign names ("Stop Sign", "Speed Limit"...)
-LABEL_MAPPING_PATH = os.path.join(BASE_DIR, 'label_mapping.json')
+LABEL_MAPPING_PATH = os.path.abspath(os.path.join(BASE_DIR, 'label_mapping.json'))
 
 # ──────────────────────────────────────────────
 # PERFORMANCE SETTINGS (webcam / live camera)
