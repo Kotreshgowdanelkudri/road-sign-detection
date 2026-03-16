@@ -390,7 +390,11 @@ def start_detection():
     Called when the user clicks 'Start Detection'.
     Opens the webcam (or the uploaded video file if one exists).
     """
-    global camera, detection_active, current_video_path
+    global camera, detection_active
+    
+    # Check if a video filename was passed from the frontend
+    video_filename = request.args.get('video')
+    video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_filename) if video_filename else None
 
     try:
         with camera_lock:
@@ -400,8 +404,8 @@ def start_detection():
                 camera = None
 
             # Use the uploaded video if one exists, otherwise use live webcam
-            is_video_file = bool(current_video_path and os.path.exists(current_video_path))
-            source = current_video_path if is_video_file else 0
+            is_video_file = bool(video_path and os.path.exists(video_path))
+            source = video_path if is_video_file else 0
             # IMPORTANT: pass the correct detection_source so labels update the
             # right variable ('video' panel vs 'live' panel)
             detection_src = 'video' if is_video_file else 'live'
@@ -499,7 +503,7 @@ def upload_video():
     A random hex suffix is added to the filename to avoid overwrite conflicts
     if the user uploads two videos with the same name.
     """
-    global current_video_path
+    # We don't need a global path anymore, the frontend remembers the name
 
     if 'file' not in request.files:
         return jsonify({'status': 'error', 'message': 'No file uploaded'}), 400
@@ -522,7 +526,7 @@ def upload_video():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
-        current_video_path = filepath  # Remember this path for detection
+        # Return the filename so the frontend can send it back in future requests
 
         return jsonify({
             'status': 'success',
@@ -544,13 +548,14 @@ def analyze_video():
     
     Returns a JSON list of {frame_number, timestamp, label, confidence} for each sample.
     """
-    global current_video_path
+    video_filename = request.args.get('video')
+    video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_filename) if video_filename else None
 
-    if not current_video_path or not os.path.exists(current_video_path):
+    if not video_path or not os.path.exists(video_path):
         return jsonify({'status': 'error', 'message': 'No video uploaded. Please upload a video first.'}), 400
 
     try:
-        cap = cv2.VideoCapture(current_video_path)
+        cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             return jsonify({'status': 'error', 'message': 'Could not open video file.'}), 500
 

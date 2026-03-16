@@ -341,11 +341,12 @@
 // ===========================================================
 //  STATE
 // ===========================================================
-let liveDetecting = false;
 let videoStreaming = false;
-let liveLastLabel  = null;
-let videoLastLabel = null;
-let imageLastLabel = null;
+let liveStreamActive = false;
+let imageLastLabel = 'No sign detected';
+let videoLastLabel = 'No sign detected';
+let liveLastLabel  = 'No sign detected';
+let uploadedVideoFilename = null; // Stores filename of uploaded video
 let liveAutoSpeakLast  = null;
 let videoAutoSpeakLast = null;
 let liveHistory   = [];
@@ -421,6 +422,7 @@ document.getElementById('videoFileInput').addEventListener('change', async e => 
     const res = await fetch('/upload_video', { method: 'POST', body: fd });
     const d = await res.json();
     if (d.status === 'success') {
+      uploadedVideoFilename = d.filename; // Store for later requests
       showVideoFile(file, d.filename);
       toast('Video uploaded', 'success');
     } else { toast(d.message, 'error'); }
@@ -459,8 +461,12 @@ function clearVideo() {
 }
 
 async function startVideoDetection() {
+  if (!uploadedVideoFilename) {
+    toast('No video uploaded', 'error');
+    return;
+  }
   try {
-    const res = await fetch('/start', { method: 'POST' });
+    const res = await fetch('/start?video=' + encodeURIComponent(uploadedVideoFilename), { method: 'POST' });
     const d = await res.json();
     if (d.status === 'success') {
       videoStreaming = true;
@@ -506,7 +512,10 @@ async function analyzeVideoFrames() {
   document.getElementById('analysisFrameList').innerHTML = '';
 
   try {
-    const res = await fetch('/analyze_video', { method: 'POST' });
+    if (!uploadedVideoFilename) {
+      throw new Error("No video uploaded. Please upload a video first.");
+    }
+    const res = await fetch('/analyze_video?video=' + encodeURIComponent(uploadedVideoFilename), { method: 'POST' });
     const d   = await res.json();
     if (d.status === 'success') {
       const all      = d.detections;
