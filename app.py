@@ -8,14 +8,14 @@ How this app works:
  - Each frame is analyzed: first we look for sign-colored regions (ROI detection)
  - The cropped sign region is passed through the trained CNN model for classification
  - Results are streamed back to the browser as a live video feed (MJPEG)
- - A separate "Speak" button triggers pyttsx3 to read the detected sign name aloud
+ - The "Speak" button uses the browser's built-in Web Speech API (no server audio needed)
+   This makes the app fully compatible with cloud deployments like Render.
 """
 import os
 import base64
 import cv2
 import numpy as np
 import threading
-import pyttsx3
 from flask import Flask, render_template, Response, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
@@ -63,8 +63,7 @@ last_detected_label_image = "No detection yet"
 last_detected_label = "No detection yet"
 
 current_video_path = None  # Path to the currently uploaded video file
-tts_engine = None          # Flag indicating pyttsx3 is available
-tts_lock = threading.Lock()  # Prevents two voice alerts from playing at the same time
+# NOTE: No server-side TTS engine needed — speech is handled by the browser's Web Speech API
 
 
 def initialize_model():
@@ -107,46 +106,6 @@ def initialize_model():
         return False
 
 
-def initialize_tts():
-    """
-    Checks that pyttsx3 (text-to-speech) is available and working.
-    We set tts_engine to True as a flag — actual speech uses a fresh engine per call.
-    """
-    global tts_engine
-    try:
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 150)
-        engine.setProperty('volume', 1.0)
-        engine.stop()
-        tts_engine = True  # Flag: TTS is available
-        print("TTS engine initialized")
-    except Exception as e:
-        tts_engine = None
-        print(f"Error initializing TTS: {e}")
-
-
-def _speak_text(text):
-    """
-    Speaks a piece of text out loud using pyttsx3.
-    
-    Why we create a new engine every time:
-      pyttsx3 on Windows becomes unreliable after the first call — subsequent
-      calls produce no audio. Creating a fresh engine each time fixes this.
-    
-    We also replace underscores with spaces because sign names come from
-    folder names like "Speed_Limit_50", and we want it to be read naturally.
-    """
-    # Replace underscores with spaces — "Speed_Limit" → "Speed Limit"
-    text = text.replace('_', ' ')
-    try:
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 150)
-        engine.setProperty('volume', 1.0)
-        engine.say(text)
-        engine.runAndWait()  # Block until finished speaking
-        engine.stop()        # Clean up
-    except Exception as e:
-        print(f"TTS speak error: {e}")
 
 
 def allowed_file(filename, allowed_extensions):
@@ -659,25 +618,23 @@ def analyze_video():
 @app.route('/speak', methods=['POST'])
 def speak():
     """
-    Triggered when the user clicks the 'Speak' button on any page.
+    Returns the detected label for the requested source so the BROWSER can speak it.
     
-    The browser sends a JSON body with {"source": "live"/"video"/"image"}
-    so we know which page's detected label to read aloud.
+    Speech is handled entirely by the browser's Web Speech API (window.speechSynthesis).
+    This approach works on all cloud servers like Render because no audio hardware
+    or system audio libraries are needed on the server side.
     
-    Speech runs in a background thread so the HTTP response returns immediately
-    and the browser doesn't freeze waiting for the audio to finish.
+    The browser sends: { "source": "live" | "video" | "image" }
+    The server responds with: { "status": "success", "label": "Stop Sign" }
+    Then the browser calls: speechSynthesis.speak(new SpeechSynthesisUtterance(label))
     """
     global last_detected_label_live, last_detected_label_video, last_detected_label_image
-    global last_detected_label, tts_engine
-
-    if tts_engine is None:
-        return jsonify({'status': 'error', 'message': 'TTS not initialized'}), 500
 
     # Read which page is calling (live, video, or image)
     data = request.get_json(silent=True) or {}
     source = data.get('source', 'live')
 
-    # Pick the appropriate label for this page
+    # Pick the correct label for the page that made the request
     if source == 'image':
         label_to_speak = last_detected_label_image
     elif source == 'video':
@@ -692,52 +649,25 @@ def speak():
             'message': f'No sign detected yet on the {source} page. Please detect a sign first.'
         }), 400
 
-    try:
-        speak_label = label_to_speak  # Capture in closure for the background thread
-        def speak_async():
-            # Lock prevents two voices from speaking at the same time
-            with tts_lock:
-                _speak_text(f"Detected: {speak_label}")
-
-        # Run in a background thread so this endpoint returns immediately
-        thread = threading.Thread(target=speak_async)
-        thread.daemon = True
-        thread.start()
-
-        return jsonify({
-            'status': 'success',
-            'message': f'Speaking: {speak_label}'
-        })
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    # Return the label — the browser's speechSynthesis will do the actual speaking
+    return jsonify({
+        'status': 'success',
+        'label': label_to_speak,
+        'message': f'Speak: {label_to_speak}'
+    })
 
 
 @app.route('/tts_test', methods=['POST'])
 def tts_test():
     """
-    Plays a short test phrase to verify the speakers and TTS are working.
-    Useful before a demo to make sure the audio works.
+    Returns a test phrase for the browser to speak.
+    Useful for verifying that the browser's Web Speech API is working.
     """
-    global tts_engine
-
-    if tts_engine is None:
-        return jsonify({'status': 'error', 'message': 'TTS not initialized'}), 500
-
-    try:
-        def speak_async():
-            with tts_lock:
-                _speak_text("This is a test of the road sign voice alert system.")
-
-        thread = threading.Thread(target=speak_async)
-        thread.daemon = True
-        thread.start()
-
-        return jsonify({
-            'status': 'success',
-            'message': 'Playing test voice message'
-        })
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    return jsonify({
+        'status': 'success',
+        'label': 'This is a test of the road sign voice alert system.',
+        'message': 'Browser will speak the test phrase'
+    })
 
 
 @app.route('/status', methods=['GET'])
@@ -769,8 +699,7 @@ if __name__ == '__main__':
     if not initialize_model():
         print("WARNING: Running without model. Please train the model first.")
 
-    # Set up text-to-speech
-    initialize_tts()
+    # NOTE: No TTS initialization needed — browser handles speech via Web Speech API
 
     print("\nStarting Flask server...")
     print("Open http://localhost:5000 in your browser")

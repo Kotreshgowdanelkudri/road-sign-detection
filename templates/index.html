@@ -602,18 +602,41 @@ function updateImageDetection(label) {
 }
 
 // ===========================================================
-//  COMMON SPEAK  — always sends which page is calling
+//  COMMON SPEAK — asks server for label, then browser speaks it
+//  Uses the browser's built-in Web Speech API (works on all
+//  modern browsers, requires no server audio hardware)
 // ===========================================================
+function browserSpeak(text) {
+  // Replace underscores with spaces so it sounds natural
+  const clean = (text || '').replace(/_/g, ' ');
+  if (!('speechSynthesis' in window)) {
+    toast('Web Speech API not supported in this browser', 'error');
+    return;
+  }
+  // Cancel any ongoing speech before starting new one
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance('Detected: ' + clean);
+  utterance.rate   = 1.0;
+  utterance.volume = 1.0;
+  window.speechSynthesis.speak(utterance);
+}
+
 async function doSpeak(source) {
   try {
+    // Ask the server which label was detected on this page
     const res = await fetch('/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source })
     });
     const d = await res.json();
-    if (d.status === 'success') toast(d.message, 'success');
-    else toast(d.message, 'error');
+    if (d.status === 'success') {
+      // The server returns the label — the browser speaks it
+      browserSpeak(d.label);
+      toast('Speaking: ' + d.label, 'success');
+    } else {
+      toast(d.message, 'error');
+    }
   } catch(e) { toast('Speak error: ' + e.message, 'error'); }
 }
 
@@ -621,8 +644,13 @@ async function ttsTest() {
   try {
     const res = await fetch('/tts_test', { method: 'POST' });
     const d   = await res.json();
-    if (d.status === 'success') toast('Playing test audio…', 'success');
-    else toast(d.message || 'TTS test failed', 'error');
+    if (d.status === 'success') {
+      // The server returns the test phrase — the browser speaks it
+      browserSpeak(d.label);
+      toast('Playing test audio…', 'success');
+    } else {
+      toast(d.message || 'TTS test failed', 'error');
+    }
   } catch(e) { toast('TTS error: ' + e.message, 'error'); }
 }
 
@@ -706,15 +734,11 @@ setInterval(async () => {
         addHistory('live', liveServerLabel);
         liveLastLabel = liveServerLabel;
 
-        // Auto speak for live only — sends source:'live'
+        // Auto speak for live — uses browser speech API directly
         if (document.getElementById('liveAutoSpeak').checked &&
             liveServerLabel !== liveAutoSpeakLast) {
           liveAutoSpeakLast = liveServerLabel;
-          fetch('/speak', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: 'live' })
-          }).catch(() => {});
+          browserSpeak(liveServerLabel);
         }
       }
     }
@@ -730,11 +754,7 @@ setInterval(async () => {
         if (document.getElementById('videoAutoSpeak').checked &&
             videoServerLabel !== videoAutoSpeakLast) {
           videoAutoSpeakLast = videoServerLabel;
-          fetch('/speak', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: 'video' })
-          }).catch(() => {});
+          browserSpeak(videoServerLabel);
         }
       }
     }
