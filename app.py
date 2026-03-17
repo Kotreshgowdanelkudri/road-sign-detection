@@ -12,10 +12,20 @@ How this app works:
    This makes the app fully compatible with cloud deployments like Render.
 """
 import os
-import gc
 
-# Suppress TensorFlow CPU optimization warnings
+# ──────────────────────────────────────────────────────────────────────────────
+# STRICT MEMORY LIMITS FOR RENDER FREE TIER (512MB RAM)
+# Must be set BEFORE importing tensorflow or keras
+# ──────────────────────────────────────────────────────────────────────────────
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'        # Disable OneDNN to save memory
+os.environ['TF_NUM_INTEROP_THREADS'] = '1'       # Limit to 1 thread
+os.environ['TF_NUM_INTRAOP_THREADS'] = '1'       # Limit to 1 thread
+os.environ['OMP_NUM_THREADS'] = '1'              # Limit OpenMP threads
+os.environ['OPENBLAS_NUM_THREADS'] = '1'         # Limit OpenBLAS threads
+os.environ['MKL_NUM_THREADS'] = '1'              # Limit MKL threads 
+
+import gc
 
 import base64
 import cv2
@@ -84,6 +94,14 @@ def initialize_model():
     """
     global model, label_mapping
     import traceback
+
+    try:
+        import tensorflow as tf
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+        tf.config.threading.set_intra_op_parallelism_threads(1)
+        print("TensorFlow memory/thread limits applied for Free Tier.")
+    except Exception as e:
+        print("Could not set TF thread limits:", e)
 
     print(f"[INIT] MODEL_PATH = {MODEL_PATH}")
 
@@ -604,7 +622,7 @@ def analyze_video():
             bboxes = detect_roi_color_based(frame_resized)
             bboxes = non_max_suppression(bboxes)
             if len(bboxes) == 0:
-                bboxes = get_smart_region_candidates(frame_resized, max_candidates=12)
+                bboxes = get_smart_region_candidates(frame_resized, max_candidates=8)
 
             best_conf = 0.0
             best_label = detected_label or 'No sign detected'
