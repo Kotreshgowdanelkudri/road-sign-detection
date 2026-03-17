@@ -209,7 +209,7 @@ def process_frame(frame, use_smart_fallback=True, source='live'):
 
     # Step 2: If color detection finds nothing, use the smart multi-region approach
     if len(bboxes) == 0 and use_smart_fallback:
-        bboxes = get_smart_region_candidates(frame, max_candidates=12)
+        bboxes = get_smart_region_candidates(frame, max_candidates=8) # Reduced to 8 to save memory on Render
         used_smart_fallback = True
     elif len(bboxes) == 0:
         # Last resort: just use the whole frame
@@ -254,7 +254,7 @@ def process_frame(frame, use_smart_fallback=True, source='live'):
         else:
             last_detected_label_live = detected_label  # live and image both use this
 
-    return frame, detected_label
+    return frame, detected_label, best_confidence
 
 
 class VideoCamera:
@@ -313,7 +313,8 @@ class VideoCamera:
         # Process this frame through the full detection pipeline
         # Pass the correct source so the label goes to the right variable
         if detection_active:
-            frame, _ = process_frame(frame, source=self.detection_source)
+            res = process_frame(frame, source=self.detection_source)
+            frame = res[0]
 
         # Encode the annotated frame as JPEG for streaming
         ret, jpeg = cv2.imencode('.jpg', frame)
@@ -493,7 +494,7 @@ def upload_image():
             return jsonify({'status': 'error', 'message': 'Could not read image'}), 400
 
         # Run the detection — use 'image' as source so it doesn't mix with live labels
-        processed_image, detected_label = process_frame(image, source='image')
+        processed_image, detected_label, _ = process_frame(image, source='image')
 
         # Convert the annotated image to base64 so we can embed it directly in JSON
         # The browser can display it as <img src="data:image/jpeg;base64,...">
@@ -614,42 +615,9 @@ def analyze_video():
                 continue
 
             # Run detection and update the video label tracker
-            _, detected_label = process_frame(frame, source='video')
-
-            # Run predictions again on the same frame to get the best confidence score
-            # (process_frame doesn't return confidence, only the label)
-            frame_resized = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-            bboxes = detect_roi_color_based(frame_resized)
-            bboxes = non_max_suppression(bboxes)
-            if len(bboxes) == 0:
-                bboxes = get_smart_region_candidates(frame_resized, max_candidates=8)
-
-            best_conf = 0.0
+            # process_frame now returns confidence, avoiding massive duplicate calculations!
+            _, detected_label, best_conf = process_frame(frame, source='video')
             best_label = detected_label or 'No sign detected'
-
-            # Video frames often have motion blur — use enhancement for better results
-            for bbox in bboxes:
-                roi = extract_roi(frame_resized, bbox)
-                if roi.size == 0:
-                    continue
-                try:
-                    lbl, conf = predict_sign(roi, enhance=True)
-                    if conf is not None and conf > best_conf and conf >= MIN_DISPLAY_CONFIDENCE:
-                        best_conf = conf
-                        best_label = lbl or 'No sign detected'
-                except Exception as e:
-                    print(f"Prediction skipped for ROI due to error: {e}")
-                
-                # Free memory immediately
-                del roi
-                gc.collect()
-
-            # Free memory immediately to prevent Render OOM Kill
-            del frame
-            del frame_resized
-            del bboxes
-            K.clear_session()  # Clear TensorFlow prediction graphs from RAM
-            gc.collect()
 
             # Calculate the timestamp in seconds from the frame number
             timestamp = round(idx / fps, 2)
@@ -657,8 +625,13 @@ def analyze_video():
                 'frame_number': idx,
                 'timestamp': timestamp,
                 'label': best_label,
-                'confidence': round(best_conf, 4)
+                'confidence': round(float(best_conf), 4)
             })
+
+            # Free memory immediately to prevent Render OOM Kill
+            del frame
+            K.clear_session()  # Clear TensorFlow prediction graphs from RAM
+            gc.collect()
 
         try:
             cap.release()
